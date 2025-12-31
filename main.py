@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import re
@@ -59,20 +60,22 @@ def format_omikuji(text):
     return text.strip()
 
 
-async def get_omikuji():
-    """おみくじAPIから結果を取得"""
+async def call_api(text: str, is_omikuji: bool = False):
+    """APIにメッセージを送信して結果を取得"""
     params = {
-        "text": "おみくじ引きたいな。",
+        "text": text,
         "appkey": OMIKUJI_API_KEY
     }
     async with aiohttp.ClientSession() as session:
         async with session.get(OMIKUJI_API_URL, params=params) as response:
             if response.status == 200:
                 data = await response.json()
-                text = data.get("text", "おみくじを引けませんでした...")
-                return format_omikuji(text)
+                result = data.get("text", "応答を取得できませんでした...")
+                if is_omikuji:
+                    return format_omikuji(result)
+                return result
             else:
-                return "おみくじAPIに接続できませんでした..."
+                return "APIに接続できませんでした..."
 
 
 @client.event
@@ -86,14 +89,24 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    # メッセージログを出力
+    logging.info(f"[{message.guild}] #{message.channel} | {message.author}: {message.content}")
+
     # BOTがメンションされているかチェック
     if client.user in message.mentions:
+        # メンションを除去したメッセージ内容を取得
+        content = message.content.replace(f"<@{client.user.id}>", "").strip()
+
         # メッセージに「おみくじ」が含まれているかチェック
         if "おみくじ" in message.content:
             # おみくじを引く
-            result = await get_omikuji()
+            result = await call_api("おみくじ引きたいな。", is_omikuji=True)
             response = f"🎋 おみくじ結果 🎋\n\n{result}"
             await message.reply(response)
+        else:
+            # おみくじ以外の場合はメッセージ内容をAPIに送信
+            result = await call_api(content)
+            await message.reply(result)
 
 
 # Botを起動
