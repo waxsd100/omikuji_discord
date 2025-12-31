@@ -10,6 +10,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ログ設定
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
 # 二重起動防止
 LOCK_FILE = os.path.join(os.path.dirname(__file__), ".bot.lock")
 
@@ -115,7 +122,7 @@ async def call_api(text: str, is_omikuji: bool = False):
 
 @client.event
 async def on_ready():
-    print(f"{client.user} としてログインしました")
+    logging.info(f"{client.user} としてログインしました")
 
 
 @client.event
@@ -149,10 +156,14 @@ async def on_message(message):
             response = f"🎋 おみくじ結果 🎋\n\n{result}"
             await message.reply(response)
         else:
-            # 会話履歴を取得してAPIに送信
-            history = await get_conversation_history(message)
-            conversation_text = "\n".join(history)
-            result = await call_api(conversation_text)
+            # リプライチェーンがある場合は会話履歴を含めて送信
+            if is_reply_to_bot:
+                history = await get_conversation_history(message)
+                conversation_text = "\n".join(history)
+                result = await call_api(conversation_text)
+            else:
+                # 最初のメンションの場合はメッセージ内容をそのまま送信
+                result = await call_api(content)
             await message.reply(result)
 
 
