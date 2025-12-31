@@ -1,0 +1,8 @@
+.env
+.bot.lock
+__pycache__/
+*.pyc
+venv/
+.idea/
+.claude/
+nul
