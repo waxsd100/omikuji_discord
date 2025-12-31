@@ -67,41 +67,6 @@ def format_omikuji(text):
     return text.strip()
 
 
-async def get_conversation_history(message, max_depth=10):
-    """リプライチェーンを辿って会話履歴を取得"""
-    history = []
-    current_message = message
-    depth = 0
-
-    while current_message and depth < max_depth:
-        # メンションを除去したメッセージ内容
-        content = current_message.content
-        if client.user:
-            content = content.replace(f"<@{client.user.id}>", "").strip()
-
-        # 話者を判定
-        if current_message.author == client.user:
-            history.append(f"あなた: {content}")
-        else:
-            history.append(f"相手: {content}")
-
-        # リプライ先があれば辿る
-        if current_message.reference:
-            try:
-                current_message = await current_message.channel.fetch_message(
-                    current_message.reference.message_id
-                )
-                depth += 1
-            except discord.NotFound:
-                break
-        else:
-            break
-
-    # 古い順に並べ替え
-    history.reverse()
-    return history
-
-
 async def call_api(text: str, is_omikuji: bool = False):
     """APIにメッセージを送信して結果を取得"""
     params = {
@@ -136,11 +101,13 @@ async def on_message(message):
 
     # Botへのリプライかどうかチェック
     is_reply_to_bot = False
+    bot_reply_content = None
     if message.reference:
         try:
             replied_message = await message.channel.fetch_message(message.reference.message_id)
             if replied_message.author == client.user:
                 is_reply_to_bot = True
+                bot_reply_content = replied_message.content
         except discord.NotFound:
             pass
 
@@ -156,10 +123,9 @@ async def on_message(message):
             response = f"🎋 おみくじ結果 🎋\n\n{result}"
             await message.reply(response)
         else:
-            # リプライチェーンがある場合は会話履歴を含めて送信
-            if is_reply_to_bot:
-                history = await get_conversation_history(message)
-                conversation_text = "\n".join(history)
+            # Botへのリプライの場合は直前のBot返信 + 今のメッセージを送信
+            if is_reply_to_bot and bot_reply_content:
+                conversation_text = f"「{bot_reply_content}」に対して「{content}」"
                 result = await call_api(conversation_text)
             else:
                 # 最初のメンションの場合はメッセージ内容をそのまま送信
