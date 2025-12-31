@@ -60,6 +60,41 @@ def format_omikuji(text):
     return text.strip()
 
 
+async def get_conversation_history(message, max_depth=10):
+    """リプライチェーンを辿って会話履歴を取得"""
+    history = []
+    current_message = message
+    depth = 0
+
+    while current_message and depth < max_depth:
+        # メンションを除去したメッセージ内容
+        content = current_message.content
+        if client.user:
+            content = content.replace(f"<@{client.user.id}>", "").strip()
+
+        # 話者を判定
+        if current_message.author == client.user:
+            history.append(f"あなた: {content}")
+        else:
+            history.append(f"相手: {content}")
+
+        # リプライ先があれば辿る
+        if current_message.reference:
+            try:
+                current_message = await current_message.channel.fetch_message(
+                    current_message.reference.message_id
+                )
+                depth += 1
+            except discord.NotFound:
+                break
+        else:
+            break
+
+    # 古い順に並べ替え
+    history.reverse()
+    return history
+
+
 async def call_api(text: str, is_omikuji: bool = False):
     """APIにメッセージを送信して結果を取得"""
     params = {
@@ -92,8 +127,18 @@ async def on_message(message):
     # メッセージログを出力
     logging.info(f"[{message.guild}] #{message.channel} | {message.author}: {message.content}")
 
-    # BOTがメンションされているかチェック
-    if client.user in message.mentions:
+    # Botへのリプライかどうかチェック
+    is_reply_to_bot = False
+    if message.reference:
+        try:
+            replied_message = await message.channel.fetch_message(message.reference.message_id)
+            if replied_message.author == client.user:
+                is_reply_to_bot = True
+        except discord.NotFound:
+            pass
+
+    # BOTがメンションされているか、Botへのリプライかチェック
+    if client.user in message.mentions or is_reply_to_bot:
         # メンションを除去したメッセージ内容を取得
         content = message.content.replace(f"<@{client.user.id}>", "").strip()
 
@@ -104,8 +149,10 @@ async def on_message(message):
             response = f"🎋 おみくじ結果 🎋\n\n{result}"
             await message.reply(response)
         else:
-            # おみくじ以外の場合はメッセージ内容をAPIに送信
-            result = await call_api(content)
+            # 会話履歴を取得してAPIに送信
+            history = await get_conversation_history(message)
+            conversation_text = "\n".join(history)
+            result = await call_api(conversation_text)
             await message.reply(result)
 
 
