@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -19,6 +20,49 @@ logging.basicConfig(
 
 # 二重起動防止
 LOCK_FILE = os.path.join(os.path.dirname(__file__), ".bot.lock")
+
+# おみくじキャッシュファイル
+OMIKUJI_CACHE_FILE = os.path.join(os.path.dirname(__file__), "omikuji_cache.json")
+
+
+def load_omikuji_cache():
+    """おみくじキャッシュを読み込む"""
+    if os.path.exists(OMIKUJI_CACHE_FILE):
+        with open(OMIKUJI_CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def save_omikuji_cache(cache):
+    """おみくじキャッシュを保存する"""
+    with open(OMIKUJI_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
+
+def has_drawn_omikuji(guild_id: int, user_id: int) -> bool:
+    """ユーザーが既におみくじを引いたか確認"""
+    cache = load_omikuji_cache()
+    guild_cache = cache.get(str(guild_id), {})
+    return str(user_id) in guild_cache
+
+
+def save_omikuji_result(guild_id: int, user_id: int, result: str, message_url: str):
+    """おみくじ結果を保存"""
+    cache = load_omikuji_cache()
+    if str(guild_id) not in cache:
+        cache[str(guild_id)] = {}
+    cache[str(guild_id)][str(user_id)] = {
+        "result": result,
+        "message_url": message_url
+    }
+    save_omikuji_cache(cache)
+
+
+def get_omikuji_data(guild_id: int, user_id: int) -> dict:
+    """保存されたおみくじデータを取得"""
+    cache = load_omikuji_cache()
+    guild_cache = cache.get(str(guild_id), {})
+    return guild_cache.get(str(user_id), {})
 
 
 def check_already_running():
@@ -118,10 +162,23 @@ async def on_message(message):
 
         # メッセージに「おみくじ」が含まれているかチェック
         if "おみくじ" in message.content:
-            # おみくじを引く
-            result = await call_api("おみくじ引きたいな。", is_omikuji=True)
-            response = f"🎋 おみくじ結果 🎋\n\n{result}"
-            await message.reply(response)
+            guild_id = message.guild.id
+            user_id = message.author.id
+
+            # 既に引いているか確認
+            if has_drawn_omikuji(guild_id, user_id):
+                data = get_omikuji_data(guild_id, user_id)
+                message_url = data.get("message_url", "")
+                response = f"既におみくじを引いています\n{message_url}"
+                await message.reply(response)
+            else:
+                # おみくじを引く
+                result = await call_api("おみくじ引きたいな。", is_omikuji=True)
+                response = f"🎋 おみくじ結果 🎋\n\n{result}"
+                reply_message = await message.reply(response)
+                # メッセージURLを生成して保存
+                message_url = f"https://discord.com/channels/{guild_id}/{message.channel.id}/{reply_message.id}"
+                save_omikuji_result(guild_id, user_id, result, message_url)
         else:
             # Botへのリプライの場合は直前のBot返信 + 今のメッセージを送信
             if is_reply_to_bot and bot_reply_content:
